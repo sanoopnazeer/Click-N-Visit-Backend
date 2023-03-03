@@ -44,7 +44,7 @@ const io = require("socket.io")();
 io.attach(server, {
   cors: {
     // origin: "http://localhost:3000",
-    origin: "https://extraordinary-pegasus-25091e.netlify.app",
+    origin: "https://click-n-visit.netlify.app",
     
   },
 });
