@@ -6,6 +6,7 @@ const bcrypt = require("bcryptjs");
 const Doctor = require("../models/doctorModel");
 const Category = require("../models/CategoryModel");
 const Appointments = require("../models/appointmentModel");
+const nodemailer = require("nodemailer");
 
 const adminSignin = async (req, res) => {
   const { email, password } = req.body;
@@ -26,7 +27,7 @@ const adminSignin = async (req, res) => {
     const token = jwt.sign(
       { email: adminExists.email, id: adminExists._id },
       process.env.JWT_SECRET_KEY,
-      { expiresIn: "1hr" }
+      { expiresIn: "1d" }
     );
     return res.status(200).json({ adminExists, token });
   } catch (error) {
@@ -137,7 +138,7 @@ const unblockDoctor = async (req, res) => {
 
 const pendingApprovals = async (req, res) => {
   try {
-    const approvalList = await Doctor.find({ isApproved: false }).populate(
+    const approvalList = await Doctor.find({ isApproved: "pending" }).populate(
       "specialization"
     );
     res.json({ approvalDetails: approvalList, status: "ok" });
@@ -146,13 +147,70 @@ const pendingApprovals = async (req, res) => {
   }
 };
 
+const transporter = nodemailer.createTransport({
+  host: process.env.HOST,
+  service: process.env.SERVICE,
+  port: Number(process.env.EMAIL_PORT),
+  secure: Boolean(process.env.SECURE),
+  auth: {
+    user: process.env.EMAIL_USERNAME,
+    pass: process.env.PASSWORD,
+  },
+  tls: {
+    rejectUnauthorized: false,
+  },
+});
+
 const approve = async (req, res) => {
   try {
-    const consId = req.params.id;
+    const { docId, status, reason } = req.body;
+    console.log(docId, status, reason);
+    if (reason) {
+      console.log("inside if condition");
+    }
     const approved = await Doctor.updateOne(
-      { _id: consId },
-      { $set: { isApproved: true } }
+      { _id: docId },
+      { $set: { isApproved: status } }
     );
+
+    const updated = await Doctor.findOne({ _id: docId });
+    if (reason !== undefined) {
+      console.log(`mail reason ${reason}`);
+      //send status mail to user
+      var mailOptions = {
+        from: '"Click N Visit" <process.env.EMAIL_USERNAME>',
+        to: updated.email,
+        subject: `Your application has been ${status} `,
+        html: `<p> Hi ${updated.firstname}! This email is to inform that your application to join in our team has been <b>${status} due to ${reason}.</b></p>`,
+      };
+
+      //send mail
+      transporter.sendMail(mailOptions, function (error, info) {
+        if (error) {
+          console.log(error);
+        } else {
+          console.log("Application status email has been sent");
+        }
+      });
+    } else {
+      //send status mail to user
+      var mailOptions = {
+        from: '"Click N Visit" <process.env.EMAIL_USERNAME>',
+        to: updated.email,
+        subject: `Your application has been ${status} `,
+        html: `<p> Hi ${updated.firstname}! This email is to inform that your application to join in our team has been <b>${status}.</b></p>`,
+      };
+
+      //send mail
+      transporter.sendMail(mailOptions, function (error, info) {
+        if (error) {
+          console.log(error);
+        } else {
+          console.log("Application status email has been sent");
+        }
+      });
+    }
+
     res.json({ approvalDetails: approved, status: "ok" });
   } catch (error) {
     res.status(500).json(error);
@@ -244,58 +302,68 @@ const getPaidAppointments = async (req, res) => {
 
 const getAllDetails = async (req, res) => {
   try {
-      const numUsers = await User.countDocuments();
-      const numDoctors = await Doctor.countDocuments();
-      const numBookings = await Appointments.countDocuments();
-      const bookingDetails = await Appointments.find();
+    const numUsers = await User.countDocuments();
+    const numDoctors = await Doctor.countDocuments();
+    const numBookings = await Appointments.countDocuments();
+    const bookingDetails = await Appointments.find({
+      status: "approved",
+      paymentStatus: "Completed",
+    });
 
-      const result = await Appointments.aggregate([
-          { $match: {
-            $and: [
-              { status: "approved" },
-              { paymentStatus: "Completed" },
-            ],
-          }, },
-          {
-              $group: {
-                  _id: 0,
-                  totalAmount: { $sum: '$amount' }
-              }
-          }
-      ]);
-      const bookingTotal = result[0].totalAmount;
+    const result = await Appointments.aggregate([
+      {
+        $match: {
+          $and: [{ status: "approved", paymentStatus: "Completed" }],
+        },
+      },
+      {
+        $group: {
+          _id: 0,
+          totalAmount: { $sum: "$amount" },
+        },
+      },
+    ]);
+    const bookingTotal = result[0].totalAmount;
 
-      var totalAmounts
-      var createdAtDates
+    var totalAmounts;
+    var createdAtDates;
 
-      Appointments.aggregate([
-          {
-              $group: {
-                  _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
-                  totalAmount: { $sum: "$amount" }
-              }
-          },
-          {
-              $sort: { _id: 1 }
-          },
-          {
-              $project: {
-                  _id: 0,
-                  totalAmount: 1,
-                  createdAt: { $dateFromString: { dateString: "$_id" } }
-              }
-          }
-      ]).exec((err, result) => {
-          if (err) throw err;
-          totalAmounts = result.map(item => item.totalAmount);
-          createdAtDates = result.map(item => item.createdAt);
-          res.json({ numUsers, numDoctors, numBookings, bookingTotal, totalAmounts, createdAtDates, bookingDetails });
+    Appointments.aggregate([
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+          totalAmount: { $sum: "$amount" },
+        },
+      },
+      {
+        $sort: { _id: 1 },
+      },
+      {
+        $project: {
+          _id: 0,
+          totalAmount: 1,
+          createdAt: { $dateFromString: { dateString: "$_id" } },
+        },
+      },
+    ]).exec((err, result) => {
+      if (err) throw err;
+      totalAmounts = result.map((item) => item.totalAmount);
+      createdAtDates = result.map((item) => item.createdAt);
+      res.json({
+        numUsers,
+        numDoctors,
+        numBookings,
+        bookingTotal,
+        totalAmounts,
+        createdAtDates,
+        bookingDetails,
       });
+    });
   } catch (err) {
-      console.error(err);
-      res.status(500).json({ message: 'Server error' });
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
-}
+};
 
 module.exports = {
   adminSignin,

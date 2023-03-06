@@ -50,11 +50,13 @@ const userProtect = AsyncHandler(async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
       console.log(decoded);
 
-      const user = await User.findById(decoded.id);
-      console.log(user);
-      if(user.isBlocked){
-        localStorage.removeItem('user')
-      }
+      const userId = decoded.id;
+      console.log(userId);
+      console.log("above is userId")
+      req.body.userId = userId
+      // if(user.isBlocked){
+      //   localStorage.removeItem('user')
+      // }
 
       next();
     } catch (error) {
@@ -83,6 +85,9 @@ const doctorProtect = AsyncHandler(async (req, res, next) => {
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET_KEY);
       console.log(decoded);
+
+      const docId = decoded.id;
+      req.body.docId = docId;
 
       await Doctor.findById(decoded.id);
 

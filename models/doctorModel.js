@@ -49,8 +49,8 @@ const doctorSchema = mongoose.Schema(
       default: false,
     },
     isApproved: {
-      type: Boolean,
-      default: false,
+      type: String,
+      default: "pending",
     },
     // pic: {
     //   type: String,

@@ -20,7 +20,7 @@ const doctorSignin = async (req, res) => {
       return res.status(404).json({ message: "BLOCKED by the admin" });
     }
 
-    if (!doctorExists.isApproved) {
+    if (doctorExists.isApproved !== "approved") {
       return res.status(404).json({ message: "Approval Pending" });
     }
 
@@ -35,7 +35,7 @@ const doctorSignin = async (req, res) => {
     const token = jwt.sign(
       { email: doctorExists.email, id: doctorExists._id },
       process.env.JWT_SECRET_KEY,
-      { expiresIn: "1hr" }
+      { expiresIn: "1d" }
     );
     return res.status(200).json({ doctorExists, token });
   } catch (error) {
@@ -91,9 +91,11 @@ const doctorSignup = asyncHandler(async (req, res) => {
 const getDoctorByCategory = async (req, res) => {
   try {
     const catId = mongoose.Types.ObjectId(req.params.id);
-    const doctors = await Doctor.find({ specialization: catId }).populate(
-      "specialization"
-    );
+    const doctors = await Doctor.find({
+      specialization: catId,
+      isApproved: "approved",
+    }).populate("specialization");
+    console.log(doctors);
     res.json({ doctorDetails: doctors, status: "ok" });
   } catch (err) {
     console.log(err);
@@ -116,7 +118,8 @@ const getDoctorProfile = async (req, res) => {
 
 const updateDoctorProfile = async (req, res) => {
   try {
-    const docId = mongoose.Types.ObjectId(req.params.id);
+    const docId = req.body.docId
+    // const docId = mongoose.Types.ObjectId(req.params.id);
     const updated = await Doctor.findOneAndUpdate(
       { _id: docId },
       req.body.formData
@@ -146,6 +149,32 @@ const getAppointmentRequests = async (req, res) => {
     const docId = mongoose.Types.ObjectId(req.params.id);
     const appointmentRequests = await Appointments.find({
       doctorId: docId,
+    }).sort({ createdAt: -1 });
+    if (appointmentRequests) {
+      return res.json({
+        appointmentDetails: appointmentRequests,
+        status: "ok",
+      });
+    } else {
+      return res.json({ message: "No appointments till now" });
+    }
+  } catch (error) {
+    console.log(error);
+    res.status(500).json(error);
+  }
+};
+
+const getTodaysAppointmentRequests = async (req, res) => {
+  try {
+    const docId = mongoose.Types.ObjectId(req.params.id);
+    const today = new Date();
+    const dd = today.getDate().toString().padStart(2, "0");
+    const mm = (today.getMonth() + 1).toString().padStart(2, "0");
+    const yyyy = today.getFullYear();
+    const todaysDate = `${dd}-${mm}-${yyyy}`;
+    console.log(todaysDate)
+    const appointmentRequests = await Appointments.find({
+      doctorId: docId, date: todaysDate
     }).sort({ createdAt: -1 });
     if (appointmentRequests) {
       return res.json({
@@ -202,8 +231,57 @@ const updateAppointmentStatus = async (req, res) => {
       from: '"Click N Visit" <process.env.EMAIL_USERNAME>',
       to: user.email,
       subject: `Your appointment has been ${status} `,
-      html: `<p> Hi ${user.firstname}! This e-mail is to inform that the appointment you
+      html: `<p> Hi ${user.firstname}! This email is to inform that the appointment you
       requested with Dr. ${updated.doctorInfo} on <b>${updated.date}</b> at <b>${updated.time}</b> has been <b>${status}.</b></p>`,
+    };
+
+    //send mail
+    transporter.sendMail(mailOptions, function (error, info) {
+      if (error) {
+        console.log(error);
+      } else {
+        console.log("Appointment status email has been sent");
+      }
+    });
+
+    res
+      .status(200)
+      .send({ message: "Appointment status updated", status: "ok" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json(error);
+  }
+};
+
+const rejectFunction = async (req, res) => {
+  try {
+    const { appointmentId, status, reason } = req.body;
+    const appointment = await Appointments.findByIdAndUpdate(appointmentId, {
+      status,
+    });
+    console.log("inside update status");
+    const updated = await Appointments.findById(appointmentId);
+    console.log(updated);
+    const user = await User.findById(updated.userId);
+    if (updated.status !== "approved" && updated.paymentStatus == "Completed") {
+      await User.findByIdAndUpdate(
+        { _id: updated.userId },
+        { $inc: { wallet: updated.amount } }
+      );
+      console.log("refunded");
+      await Appointments.findByIdAndUpdate(appointmentId, {
+        paymentStatus: "refunded",
+      });
+    }
+    console.log(appointment);
+
+    //send status mail to user
+    var mailOptions = {
+      from: '"Click N Visit" <process.env.EMAIL_USERNAME>',
+      to: user.email,
+      subject: `Your appointment has been ${status} `,
+      html: `<p> Hi ${user.firstname}! This email is to inform that the appointment you
+      requested with Dr. ${updated.doctorInfo} on <b>${updated.date}</b> at <b>${updated.time}</b> has been <b>${status} due to ${reason}.</b></p>`,
     };
 
     //send mail
@@ -297,7 +375,9 @@ module.exports = {
   updateDoctorProfile,
   getSingleDoctor,
   getAppointmentRequests,
+  getTodaysAppointmentRequests,
   updateAppointmentStatus,
+  rejectFunction,
   getDoctorDetails,
   getDoctorDashDetails,
   getMyPaidAppointments,

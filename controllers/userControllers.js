@@ -52,7 +52,7 @@ const signin = async (req, res) => {
     const token = jwt.sign(
       { email: userExists.email, id: userExists._id },
       process.env.JWT_SECRET_KEY,
-      { expiresIn: "1hr" }
+      { expiresIn: "1d" }
     );
 
     res.cookie("access-token", token);
@@ -251,7 +251,8 @@ const resetLink = async (req, res) => {
         from: '"Click N Visit" <process.env.EMAIL_USERNAME>',
         to: email,
         subject: "Reset your password",
-        text: `This Link is Valid only for 10 minutes http://localhost:3000/newPassword/${oldUser._id}/${token}`,
+        // text: `This Link is Valid only for 10 minutes http://localhost:3000/newPassword/${oldUser._id}/${token}`,
+        text: `This Link is Valid only for 10 minutes https://click-n-visit.onrender.com/newPassword/${oldUser._id}/${token}`,
       };
 
       transporter.sendMail(mailOptions, (error, info) => {
@@ -318,6 +319,8 @@ const changePassword = async (req, res) => {
 
 const getUserProfile = async (req, res) => {
   try {
+    console.log(req.body)
+    // const userId = req.body.userId
     const userId = mongoose.Types.ObjectId(req.params.id);
     const user = await User.findOne({ _id: userId });
     res.json({ userProfile: user, status: "ok" });
@@ -330,7 +333,7 @@ const getUserProfile = async (req, res) => {
 const updateUserProfile = async (req, res) => {
   console.log(req.body.formValue);
   try {
-    const userId = mongoose.Types.ObjectId(req.params.id);
+    const userId = req.body.userId
     const updated = await User.findOneAndUpdate(
       { _id: userId },
       req.body.formData
@@ -345,7 +348,8 @@ const updateUserProfile = async (req, res) => {
 const payment = async (req, res) => {
   console.log("in payment backend");
   try {
-    const userId = req.params.id;
+    const userId = req.body.userId;
+    // const userId = req.params.id;
     const { docId, date, time } = req.body;
     console.log(docId, date, time);
 
@@ -511,12 +515,63 @@ const getUserAppointments = async (req, res) => {
   }
 };
 
+const cancelAppointment = async (req, res) => {
+  try {
+    const { appointmentId, status } = req.body;
+    const appointment = await Appointments.findByIdAndUpdate(appointmentId, {
+      status,
+    });
+    console.log("inside update status");
+    const updated = await Appointments.findById(appointmentId);
+    console.log(updated);
+    const doctor = await Doctor.findById(updated.doctorId);
+    const user = await User.findById(updated.userId);
+    if (updated.status !== "approved" && updated.paymentStatus == "Completed") {
+      await User.findByIdAndUpdate(
+        { _id: updated.userId },
+        { $inc: { wallet: updated.amount } }
+      );
+      console.log("refunded");
+      await Appointments.findByIdAndUpdate(appointmentId, {
+        paymentStatus: "refunded",
+      });
+    }
+    console.log(appointment);
+
+    //send status mail to user
+    var mailOptions = {
+      from: '"Click N Visit" <process.env.EMAIL_USERNAME>',
+      to: doctor.email,
+      subject: `Scheduled appointment has been ${status} `,
+      html: `<p> Hi ${doctor.firstname}! This email is to inform that the appointment
+      requested by Mr. ${updated.userInfo} on <b>${updated.date}</b> at <b>${updated.time}</b> has been <b>${status} by the patient.</b></p>`,
+    };
+
+    //send mail
+    transporter.sendMail(mailOptions, function (error, info) {
+      if (error) {
+        console.log(error);
+      } else {
+        console.log("Appointment status email has been sent");
+      }
+    });
+
+    res
+      .status(200)
+      .send({ message: "Appointment Cancelled", status: "ok" });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json(error);
+  }
+};
+
 module.exports = {
   registerUser,
   signin,
   // bookAppointment,
   checkAvailability,
   getUserAppointments,
+  cancelAppointment,
   payment,
   generateRazorpay,
   verifyPayment,

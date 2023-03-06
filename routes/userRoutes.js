@@ -16,6 +16,7 @@ const {
   resetLink,
   verifyUser,
   changePassword,
+  cancelAppointment,
 } = require("../controllers/userControllers");
 const { userProtect } = require("../middlewares/authMiddleware");
 
@@ -28,7 +29,7 @@ router.get('/validateUser/:id/:token', verifyUser)
 router.post('/changePassword/:id/:token', changePassword)
 
 router.get('/getUserProfile/:id', getUserProfile)
-router.post('/updateUserProfile/:id', userProtect, updateUserProfile)
+router.post('/updateUserProfile', userProtect, updateUserProfile)
 
 // router.get("/:id/verify/:token", verifyToken)
 
@@ -37,9 +38,10 @@ router.post("/check-availability", checkAvailability);
 
 // BOOK APPOINTMENT
 // router.post('/book-appointment', bookAppointment)
-router.post("/payment/:id", userProtect, payment);
+router.post("/payment", userProtect, payment);
 router.post("/verifyPayment", userProtect, verifyPayment);
 
 router.get("/view-appointments/:id", userProtect, getUserAppointments);
+router.post("/cancelAppointment", cancelAppointment);
 
 module.exports = router;
